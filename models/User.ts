@@ -42,7 +42,7 @@ UserSchema.pre('save', function () {
   return new Promise<void>((resolve, reject) => {
     bcrypt.hash(user.password, 12, (err, hash) => {
       if (err) return reject(err);
-      user.password = hash;
+      user.password = hash!;
       resolve();
     });
   });
