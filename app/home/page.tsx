@@ -3,62 +3,101 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-const stats = [
-  { label: 'Children', value: '3', change: 'Active today', up: true, icon: '👨‍👩‍👧' },
-  { label: 'Lessons done', value: '24', change: '+6 this week', up: true, icon: '📚' },
-  { label: 'Screen time', value: '2h 14m', change: '18m less', up: false, icon: '⏱️' },
-  { label: 'Rewards earned', value: '47', change: '+12 today', up: true, icon: '⭐' },
-];
+interface Child {
+  _id: string;
+  childName: string;
+  extensionId: string;
+  parentEmail: string;
+}
 
-const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const barHeights = [55, 70, 45, 88, 60, 30, 20];
+interface HistoryItem {
+  _id: string;
+  url: string;
+  title: string;
+  time: string;
+}
 
-const children = [
-  { initials: 'LJ', name: 'Liam', age: 'Age 8 · Grade 3', progress: 82, color: '#dcfce7', text: '#15803d' },
-  { initials: 'SJ', name: 'Sofia', age: 'Age 6 · Grade 1', progress: 65, color: '#dbeafe', text: '#1d4ed8' },
-  { initials: 'EJ', name: 'Ethan', age: 'Age 11 · Grade 6', progress: 91, color: '#fce7f3', text: '#db2777' },
-];
+interface LocationItem {
+  _id: string;
+  latitude: number;
+  longitude: number;
+  time: string;
+}
 
-const activities = [
-  { text: 'Ethan completed Math Quiz — Level 5', time: '10 minutes ago', color: '#16a34a' },
-  { text: 'Liam earned a reading badge', time: '32 minutes ago', color: '#2563eb' },
-  { text: 'Sofia started Science: Animals lesson', time: '1 hour ago', color: '#d97706' },
-  { text: "Liam's screen time limit reached", time: '2 hours ago', color: '#db2777' },
-];
-
-const sessions = [
-  { name: 'Math — Fractions', meta: 'Liam · Today', time: '3:00 PM', color: '#dcfce7', text: '#16a34a', icon: '🧮' },
-  { name: 'Reading Club', meta: 'Sofia · Tomorrow', time: '10:00 AM', color: '#dbeafe', text: '#2563eb', icon: '📖' },
-  { name: 'Science Quiz', meta: 'Ethan · Thu', time: '4:30 PM', color: '#fef3c7', text: '#d97706', icon: '🔬' },
-];
+const letters = ['K', 'I', 'D', 'S', 'L', '💚', 'X'];
 
 export default function DashboardPage() {
   const router = useRouter();
   const [user, setUser] = useState<{ fullName: string; email: string } | null>(null);
+  const [children, setChildren] = useState<Child[]>([]);
+  const [selectedChild, setSelectedChild] = useState<Child | null>(null);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
+  const [locations, setLocations] = useState<LocationItem[]>([]);
+  const [activeTab, setActiveTab] = useState<'history' | 'location'>('history');
+  const [showAddModal, setShowAddModal] = useState(false);
+  const [childName, setChildName] = useState('');
+  const [extensionId, setExtensionId] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [dataLoading, setDataLoading] = useState(false);
 
   useEffect(() => {
     const stored = localStorage.getItem('user');
-    if (!stored) {
-      router.push('/auth/sign-in');
-      return;
-    }
-    setUser(JSON.parse(stored));
+    if (!stored) { router.push('/auth/sign-in'); return; }
+    const u = JSON.parse(stored);
+    setUser(u);
+    fetchChildren(u.email);
   }, []);
 
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    router.push('/auth/sign-in');
+  const fetchChildren = async (email: string) => {
+    const res = await fetch(`/api/children?parentEmail=${encodeURIComponent(email)}`);
+    const data = await res.json();
+    setChildren(data.children || []);
   };
 
+  const fetchChildData = async (child: Child) => {
+    setSelectedChild(child);
+    setDataLoading(true);
+    const [histRes, locRes] = await Promise.all([
+      fetch(`/api/children/history?extensionId=${child.extensionId}`),
+      fetch(`/api/children/location?extensionId=${child.extensionId}`),
+    ]);
+    const histData = await histRes.json();
+    const locData = await locRes.json();
+    setHistory(histData.history || []);
+    setLocations(locData.locations || []);
+    setDataLoading(false);
+  };
+
+  const handleAddChild = async () => {
+    if (!childName.trim() || !extensionId.trim()) { setError('Both fields are required'); return; }
+    setLoading(true);
+    setError('');
+    const res = await fetch('/api/children', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parentEmail: user?.email, childName, extensionId }),
+    });
+    const data = await res.json();
+    if (data.error) { setError(data.error); setLoading(false); return; }
+    setShowAddModal(false);
+    setChildName('');
+    setExtensionId('');
+    setLoading(false);
+    fetchChildren(user!.email);
+  };
+
+  const handleDeleteChild = async (e: React.MouseEvent, childId: string) => {
+    e.stopPropagation();
+    if (!confirm('Are you sure you want to delete this child?')) return;
+    await fetch(`/api/children?id=${childId}`, { method: 'DELETE' });
+    if (selectedChild?._id === childId) setSelectedChild(null);
+    fetchChildren(user!.email);
+  };
+
+  const handleLogout = () => { localStorage.removeItem('user'); router.push('/auth/sign-in'); };
   const firstName = user?.fullName?.split(' ')[0] || 'there';
-  const letters = ['K', 'I', 'D', 'S', 'L', '💚', 'X'];
-
-  const getGreeting = () => {
-    const h = new Date().getHours();
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
-  };
+  const getGreeting = () => { const h = new Date().getHours(); if (h < 12) return 'Good morning'; if (h < 17) return 'Good afternoon'; return 'Good evening'; };
 
   if (!user) return null;
 
@@ -68,152 +107,175 @@ export default function DashboardPage() {
       {/* Top bar */}
       <div className="bg-white border-b border-green-100 px-6 py-3 flex items-center justify-between">
         <div className="flex gap-1 items-center">
-          {letters.map((l, i) => (
-            <span key={i} className="text-lg font-black text-green-600">{l}</span>
-          ))}
+          {letters.map((l, i) => <span key={i} className="text-lg font-black text-green-600">{l}</span>)}
         </div>
         <div className="flex items-center gap-3">
-          <div className="relative">
-            <button className="w-9 h-9 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-gray-100 transition">
-              🔔
-            </button>
-            <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-green-500 rounded-full border-2 border-white" />
-          </div>
           <div className="w-9 h-9 rounded-full bg-green-100 border border-green-200 flex items-center justify-center text-xs font-bold text-green-700">
             {user.fullName?.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
           </div>
-          <button
-            onClick={handleLogout}
-            className="text-xs font-bold text-red-500 hover:text-red-700 transition"
-          >
-            Logout
-          </button>
+          <span className="text-xs text-gray-500 font-semibold">{user.email}</span>
+          <button onClick={handleLogout} className="text-xs font-bold text-red-500 hover:text-red-700 transition">Logout</button>
         </div>
       </div>
 
       <div className="max-w-5xl mx-auto px-5 py-6">
 
         {/* Greeting */}
-        <div className="mb-6">
-          <h1 className="text-xl font-black text-gray-800">{getGreeting()}, {firstName}</h1>
-          <p className="text-sm text-gray-500 mt-0.5">Here's what's happening with your children today</p>
+        <div className="mb-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-xl font-black text-gray-800">{getGreeting()}, {firstName}</h1>
+            <p className="text-sm text-gray-500 mt-0.5">Monitor your children's activity</p>
+          </div>
+          <button
+            onClick={() => setShowAddModal(true)}
+            className="bg-green-500 hover:bg-green-600 text-white text-sm font-bold px-4 py-2 rounded-xl transition"
+          >
+            + Add Child
+          </button>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-          {stats.map((s, i) => (
-            <div key={i} className="bg-white rounded-2xl border border-green-100 p-4 shadow-sm">
-              <div className="text-2xl mb-2">{s.icon}</div>
-              <div className="text-xs font-bold text-gray-400 uppercase tracking-wide mb-1">{s.label}</div>
-              <div className="text-xl font-black text-gray-800">{s.value}</div>
-              <div className={`text-xs font-semibold mt-1 ${s.up ? 'text-green-600' : 'text-red-500'}`}>
-                {s.up ? '↑' : '↓'} {s.change}
+        {/* Children Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          {children.length === 0 && (
+            <div className="md:col-span-3 bg-white rounded-2xl border border-green-100 p-8 text-center text-gray-400">
+              <p className="text-3xl mb-2">👶</p>
+              <p className="font-bold">No children added yet</p>
+              <p className="text-sm mt-1">Click "Add Child" to link an extension</p>
+            </div>
+          )}
+          {children.map((child) => (
+            <div
+              key={child._id}
+              onClick={() => fetchChildData(child)}
+              className={`bg-white rounded-2xl border p-5 shadow-sm cursor-pointer transition hover:border-green-400 ${selectedChild?._id === child._id ? 'border-green-500 ring-2 ring-green-200' : 'border-green-100'}`}
+            >
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center text-sm font-black text-green-700">
+                  {child.childName.slice(0, 2).toUpperCase()}
+                </div>
+                <div className="flex-1">
+                  <p className="font-black text-gray-800">{child.childName}</p>
+                  <p className="text-xs text-gray-400">{child.extensionId}</p>
+                </div>
+                <button
+                  onClick={(e) => handleDeleteChild(e, child._id)}
+                  className="w-7 h-7 rounded-lg bg-red-50 hover:bg-red-100 flex items-center justify-center text-red-400 hover:text-red-600 transition flex-shrink-0"
+                >
+                  🗑️
+                </button>
               </div>
+              <p className="text-xs text-green-600 font-semibold">Click to view activity →</p>
             </div>
           ))}
         </div>
 
-        {/* Main grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
-
-          {/* Bar chart */}
-          <div className="md:col-span-2 bg-white rounded-2xl border border-green-100 p-5 shadow-sm">
-            <div className="flex justify-between items-center mb-4">
-              <div>
-                <p className="text-sm font-black text-gray-800">Weekly activity</p>
-                <p className="text-xs text-gray-400 mt-0.5">Total learning minutes per day</p>
-              </div>
-              <span className="text-xs font-bold bg-green-100 text-green-700 px-3 py-1 rounded-full">This week</span>
-            </div>
-            <div className="flex items-end gap-2 h-36">
-              {days.map((day, i) => (
-                <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                  <div
-                    className={`w-full rounded-t-lg transition-all ${i === 3 ? 'bg-green-500' : 'bg-green-100 hover:bg-green-300'}`}
-                    style={{ height: `${barHeights[i]}%` }}
-                  />
-                  <span className="text-[10px] text-gray-400 font-semibold">{day}</span>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Children */}
+        {/* Data Panel — outside the grid */}
+        {selectedChild && (
           <div className="bg-white rounded-2xl border border-green-100 p-5 shadow-sm">
-            <div className="flex justify-between items-center mb-4">
-              <p className="text-sm font-black text-gray-800">Children</p>
-              <span className="text-xs font-bold bg-blue-100 text-blue-700 px-3 py-1 rounded-full">3 active</span>
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => setActiveTab('history')}
+                className={`px-4 py-1.5 rounded-xl text-sm font-bold transition ${activeTab === 'history' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+              >
+                🌐 Browsing History
+              </button>
+              <button
+                onClick={() => setActiveTab('location')}
+                className={`px-4 py-1.5 rounded-xl text-sm font-bold transition ${activeTab === 'location' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+              >
+                📍 Locations
+              </button>
             </div>
-            <div className="flex flex-col gap-3">
-              {children.map((c, i) => (
-                <div key={i} className="flex items-center gap-3 p-2 rounded-xl bg-gray-50">
-                  <div
-                    className="w-9 h-9 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0"
-                    style={{ background: c.color, color: c.text }}
-                  >
-                    {c.initials}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-black text-gray-800">{c.name}</p>
-                    <p className="text-xs text-gray-400">{c.age}</p>
-                  </div>
-                  <div className="text-right w-14">
-                    <p className="text-xs font-black text-green-600">{c.progress}%</p>
-                    <div className="h-1 bg-gray-200 rounded-full mt-1">
-                      <div
-                        className="h-full bg-green-500 rounded-full"
-                        style={{ width: `${c.progress}%` }}
-                      />
+
+            {dataLoading ? (
+              <p className="text-sm text-gray-400 text-center py-6">Loading...</p>
+            ) : activeTab === 'history' ? (
+              history.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">No history found yet.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {history.map((item) => (
+                    <div key={item._id} className="flex items-start gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                      <div className="w-2 h-2 rounded-full bg-green-500 mt-1.5 flex-shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-700 truncate">{item.title || 'No title'}</p>
+                        <p className="text-xs text-blue-500 truncate">{item.url}</p>
+                      </div>
+                      <p className="text-xs text-gray-400 flex-shrink-0">{item.time}</p>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-
-          {/* Activity */}
-          <div className="bg-white rounded-2xl border border-green-100 p-5 shadow-sm">
-            <p className="text-sm font-black text-gray-800 mb-4">Recent activity</p>
-            <div className="flex flex-col gap-4">
-              {activities.map((a, i) => (
-                <div key={i} className="flex gap-3">
-                  <div className="w-2 h-2 rounded-full mt-1.5 flex-shrink-0" style={{ background: a.color }} />
-                  <div>
-                    <p className="text-sm text-gray-700">{a.text}</p>
-                    <p className="text-xs text-gray-400 mt-0.5">{a.time}</p>
-                  </div>
+              )
+            ) : (
+              locations.length === 0 ? (
+                <p className="text-sm text-gray-400 text-center py-6">No locations found yet.</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {locations.map((loc) => (
+                    <div key={loc._id} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50 border border-gray-100">
+                      <div className="w-8 h-8 rounded-xl bg-blue-100 flex items-center justify-center flex-shrink-0">📍</div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-gray-700">
+                          {loc.latitude.toFixed(5)}, {loc.longitude.toFixed(5)}
+                        </p>
+                        
+                         <a href={`https://maps.google.com/?q=${loc.latitude},${loc.longitude}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-xs text-blue-500 hover:underline"
+                        >
+                          Open in Google Maps →
+                        </a>
+                      </div>
+                      <p className="text-xs text-gray-400 flex-shrink-0">{loc.time}</p>
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
+              )
+            )}
           </div>
-
-          {/* Upcoming sessions */}
-          <div className="bg-white rounded-2xl border border-green-100 p-5 shadow-sm">
-            <p className="text-sm font-black text-gray-800 mb-4">Upcoming sessions</p>
-            <div className="flex flex-col gap-3">
-              {sessions.map((s, i) => (
-                <div key={i} className="flex items-center gap-3 p-2 rounded-xl border border-gray-100">
-                  <div
-                    className="w-9 h-9 rounded-xl flex items-center justify-center text-base flex-shrink-0"
-                    style={{ background: s.color }}
-                  >
-                    {s.icon}
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-black text-gray-800">{s.name}</p>
-                    <p className="text-xs text-gray-400">{s.meta}</p>
-                  </div>
-                  <p className="text-xs font-bold text-gray-500">{s.time}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        )}
       </div>
+
+      {/* Add Child Modal */}
+      {showAddModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-sm shadow-xl">
+            <h2 className="text-lg font-black text-gray-800 mb-1">Add Child</h2>
+            <p className="text-sm text-gray-500 mb-4">Enter the child's name and the Extension ID shown on the welcome page</p>
+            <input
+              type="text"
+              placeholder="Child's name"
+              value={childName}
+              onChange={e => setChildName(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm mb-3 outline-none focus:border-green-400 text-gray-800 placeholder-gray-400 bg-white"
+            />
+            <input
+              type="text"
+              placeholder="Extension ID (e.g. EXT-XXXXXXXX)"
+              value={extensionId}
+              onChange={e => setExtensionId(e.target.value)}
+              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm mb-3 outline-none focus:border-green-400 text-gray-800 placeholder-gray-400 bg-white"
+            />
+            {error && <p className="text-xs text-red-500 mb-3">{error}</p>}
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setShowAddModal(false); setError(''); }}
+                className="flex-1 border border-gray-200 text-gray-600 text-sm font-bold py-2.5 rounded-xl hover:bg-gray-50 transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddChild}
+                disabled={loading}
+                className="flex-1 bg-green-500 hover:bg-green-600 text-white text-sm font-bold py-2.5 rounded-xl transition disabled:opacity-50"
+              >
+                {loading ? 'Saving...' : 'Add Child'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
